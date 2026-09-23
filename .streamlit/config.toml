@@ -1,0 +1,25 @@
+[theme]
+# 配色选了偏暖的橙色系。原因很实际：这个应用展示的主体是食物照片，
+# 冷色调（蓝、紫）会把菜的颜色压得发暗，看起来没食欲；
+# 暖色背景能让菜品照片更突出。
+primaryColor = "#c0392b"
+backgroundColor = "#fffdfa"
+secondaryBackgroundColor = "#f7f2ea"
+textColor = "#2b2b2b"
+font = "sans serif"
+
+[server]
+# 上传的菜品照片一般几 MB，默认 200MB 太大了
+maxUploadSize = 50
+
+[browser]
+gatherUsageStats = false
+
+[client]
+# 关掉错误信息里的完整堆栈显示（演示时更干净）；
+# 调试阶段可以临时改成 "full"
+showErrorDetails = "full"
+
+[runner]
+# 关掉"脚本重跑"的提示动画，录演示视频时画面更干净
+magicEnabled = false
