@@ -39,7 +39,14 @@ if "meal_items" not in st.session_state:
 if "day_meals" not in st.session_state:
     st.session_state["day_meals"] = {}
 
-meal_items = st.session_state["meal_items"]
+# 读进来先筛一遍。会话状态里的这一列，历史上出过 None 混进去的情况：
+# 表格删行之后按序号回查原条目会错位，越界取到的 None 被写回列表，
+# 之后每次渲染都在 None 上取键，页面就一直崩、刷新也救不回来。
+# 这里把无效项剔掉，坏掉的状态能自愈，而不是永久坏下去。
+meal_items = [
+    it for it in st.session_state["meal_items"]
+    if isinstance(it, dict) and "key" in it and "nutrients" in it
+]
 
 # ---------------------------------------------------------------- 本餐
 st.subheader("本餐菜品", icon=":material/list_alt:")
@@ -63,15 +70,24 @@ if not meal_items:
                                 key="man_g")
             if c3.button("添加", key="man_add"):
                 est = nut.estimate_dish(k, db, portion_g=g)
-                meal_items.append(est)
-                st.rerun()
+                # estimate_dish 查不到记录会返回 None，直接 append 会让
+                # 列表里混进 None，之后每次渲染都在它身上取键而崩溃。
+                if est is None:
+                    st.error("营养库里没有「%s」这条记录，无法加入。"
+                             % config.CN_NAME.get(k, k),
+                             icon=":material/error:")
+                else:
+                    meal_items.append(est)
+                    st.rerun()
 else:
     # 用 data_editor 让用户直接改重量和删除，比一堆小控件清爽。
     # num_rows="dynamic" 允许删行。
+    #
+    # 「序号」列只作显示用，按当前顺序现编。它不再参与"找回原条目"，
+    # 所以删行后序号变化不会引起错位（定位靠菜品名，见下面的重建逻辑）。
     rows = []
-    for i, it in enumerate(meal_items):
+    for it in meal_items:
         rows.append({
-            "序号": i,
             "菜品": it["cn_name"],
             "重量(g)": it["grams"],
             "能量(kcal)": round(it["nutrients"].energy_kcal, 1),
@@ -80,7 +96,9 @@ else:
             "碳水(g)": round(it["nutrients"].carb_g, 1),
             "钠(mg)": round(it["nutrients"].sodium_mg),
         })
-    df = pd.DataFrame(rows).set_index("序号")
+    df = pd.DataFrame(rows)
+    df.insert(0, "序号", range(1, len(df) + 1))
+    df = df.set_index("序号")
 
     # 这个表格**必须保留 st.data_editor**：用户可以在这里直接改份量、
     # 删行，改完下面的指标会跟着重算。换成静态 HTML 表格就没法编辑了。
@@ -94,20 +112,38 @@ else:
                 help="改这里会立刻重新计算下面所有指标"),
         })
 
-    # 根据编辑结果重建列表
+    # 根据编辑结果重建列表。
+    #
+    # 这里必须按「菜品名」找回原条目，不能按序号。
+    # 踩过的坑：表格支持删行，一删行后面所有行的序号就整体前移，
+    # 而原列表并不会跟着重排；此时再用序号回查 meal_items[i]，
+    # 取到的是错位的条目、越界时还拿到 None，None 被写回列表后
+    # 每次渲染都在它身上取键，页面就永久崩掉。
+    # 菜品名在列表里是唯一的（每道菜各占一行），用它定位不受删行影响。
+    by_name = {}
+    for it in meal_items:
+        by_name.setdefault(it["cn_name"], it)
+
     new_items = []
     changed = False
-    for idx, row in edited.iterrows():
-        if not isinstance(idx, (int, float)):
-            continue                       # 新增行没有序号，忽略
-        i = int(idx)
-        if i >= len(meal_items):
-            continue
-        it = meal_items[i]
-        if abs(row["重量(g)"] - it["grams"]) > 0.01:
-            it = nut.estimate_dish(it["key"], db, portion_g=row["重量(g)"])
+    for _, row in edited.iterrows():
+        name = row.get("菜品")
+        if not isinstance(name, str):
+            continue                       # 新增行还没填菜名，先忽略
+        src = by_name.get(name)
+        if src is None:
+            continue                       # 表里出现了列表中没有的菜名，跳过
+        try:
+            grams = float(row["重量(g)"])
+        except (TypeError, ValueError):
+            continue                       # 重量被清空成 NaN/None，跳过而不是崩
+        if abs(grams - src["grams"]) > 0.01:
+            est = nut.estimate_dish(src["key"], db, portion_g=grams)
+            if est is None:
+                continue                   # 查不到记录就保持原样，不塞 None
+            src = est
             changed = True
-        new_items.append(it)
+        new_items.append(src)
 
     if len(new_items) != len(meal_items):
         changed = True

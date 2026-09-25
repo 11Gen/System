@@ -316,8 +316,17 @@ if known_key:
         % config.CN_NAME.get(known_key, known_key),
         icon=":material/verified:")
     est = nut.estimate_dish(known_key, db)
-    st.session_state["ai_estimate"] = est
-    st.session_state["ai_estimate_is_ai"] = False
+    if est is None:
+        # 类别清单与营养库理论上是一致的，真出现不一致时给个说法，
+        # 而不是把 None 丢进会话状态，让别的页面在后面莫名其妙地崩。
+        st.error("营养库里没有「%s」这条记录，无法给出营养估算。"
+                 % config.CN_NAME.get(known_key, known_key),
+                 icon=":material/error:")
+        st.session_state["ai_estimate"] = None
+        st.session_state["ai_estimate_is_ai"] = False
+    else:
+        st.session_state["ai_estimate"] = est
+        st.session_state["ai_estimate_is_ai"] = False
 else:
     st.warning(
         "「%s」不在内置的 16 道菜里，营养库里没有它的数据。"

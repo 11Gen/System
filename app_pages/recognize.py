@@ -221,6 +221,15 @@ else:
     est = nut.estimate_dish(dish_key, db,
                             portion_scale=nut.PORTION_PRESETS[preset or "标准份"])
 
+# 识别给出的类别必须在营养库里有记录，否则 estimate_dish 返回 None。
+# 不判空的话下一行取 est["nutrients"] 就直接崩，而且崩得没有提示。
+if est is None:
+    st.error("营养库里没有「%s」这条记录，无法估算营养。"
+             "识别结果仍然有效，只是缺这道菜的营养数据。"
+             % config.CN_NAME.get(dish_key, dish_key),
+             icon=":material/error:")
+    st.stop()
+
 n = est["nutrients"]
 score = nut.nutriscore_like(n)
 ratio = n.macro_energy_ratio()
